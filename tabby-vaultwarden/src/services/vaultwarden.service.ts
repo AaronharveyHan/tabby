@@ -283,8 +283,9 @@ export class VaultwardenService {
             cipherId = existing.id
         } else {
             const created = await this.client!.createCipher(notePaylod, this.accessToken!)
-            cipherId = created.Id
+            cipherId = created.Id ?? created.id
         }
+        console.log('[vaultwarden] uploadFile cipherId:', cipherId)
 
         // Generate per-attachment key
         const { key: attachKey, encryptedKey } = generateAttachmentKey(key)

@@ -162,60 +162,111 @@ export class BitwardenApiClient {
         encryptedData: Buffer,
         accessToken: string,
     ): Promise<RawAttachment> {
-        // Step 1: request upload slot (v2 API)
+        // Try v2 API first (modern Vaultwarden), fall back to v1 if not supported
+        try {
+            return await this.uploadAttachmentV2(cipherId, encryptedFileName, encryptedKey, encryptedData, accessToken)
+        } catch (e: any) {
+            if (e.message?.includes('422') || e.message?.includes('404')) {
+                console.log('[vaultwarden] v2 attachment API failed, falling back to v1:', e.message)
+                return this.uploadAttachmentV1(cipherId, encryptedFileName, encryptedKey, encryptedData, accessToken)
+            }
+            throw e
+        }
+    }
+
+    private async uploadAttachmentV2 (
+        cipherId: string,
+        encryptedFileName: string,
+        encryptedKey: string,
+        encryptedData: Buffer,
+        accessToken: string,
+    ): Promise<RawAttachment> {
         const initBody = {
             fileName: encryptedFileName,
             key: encryptedKey,
             fileSize: encryptedData.length,
             adminRequest: false,
         }
-        console.log('[vaultwarden] attachment v2 init request:', JSON.stringify(initBody).slice(0, 200))
+        console.log('[vaultwarden] v2 init request body:', JSON.stringify(initBody).slice(0, 200))
         const initResp = await this.post(`/api/ciphers/${cipherId}/attachment/v2`, initBody, accessToken)
-        console.log('[vaultwarden] attachment v2 init response:', JSON.stringify(initResp).slice(0, 500))
+        console.log('[vaultwarden] v2 init response:', JSON.stringify(initResp).slice(0, 500))
 
-        // Vaultwarden returns PascalCase fields
         const attachmentId: string = initResp.AttachmentId ?? initResp.attachmentId
         const uploadUrl: string = initResp.Url ?? initResp.url
         const fileUploadType: number = initResp.FileUploadType ?? initResp.fileUploadType ?? 1
-
         console.log('[vaultwarden] attachmentId:', attachmentId, 'uploadUrl:', uploadUrl, 'fileUploadType:', fileUploadType)
 
-        // Step 2: upload the encrypted bytes
-        // fileUploadType 0 = Azure Blob Storage, 1 = Direct (Vaultwarden local storage)
         if (fileUploadType === 0) {
-            console.log('[vaultwarden] uploading via Azure PUT')
             await this.putRaw(uploadUrl, encryptedData, {
                 'x-ms-blob-type': 'BlockBlob',
                 'Content-Type': 'application/octet-stream',
             })
         } else {
-            // Direct: multipart POST back to Vaultwarden
-            const boundary = `----TabbyBoundary${crypto.randomBytes(8).toString('hex')}`
-            const CRLF = '\r\n'
-            const filePart = [
-                `--${boundary}`,
-                `Content-Disposition: form-data; name="data"; filename="attachment"`,
-                'Content-Type: application/octet-stream',
-                '',
-            ].join(CRLF)
-            const body = Buffer.concat([
-                Buffer.from(filePart + CRLF),
-                encryptedData,
-                Buffer.from(CRLF + `--${boundary}--` + CRLF),
-            ])
-            // uploadUrl may be absolute or relative
-            const uploadPath = uploadUrl.startsWith('http') ? new URL(uploadUrl).pathname + new URL(uploadUrl).search : uploadUrl
-            console.log('[vaultwarden] uploading via direct POST to:', uploadPath, 'body size:', body.length)
-            await this.request('POST', uploadPath, body, accessToken, {
-                'Content-Type': `multipart/form-data; boundary=${boundary}`,
+            const multipart = this.buildMultipart(encryptedData)
+            const uploadPath = uploadUrl.startsWith('http')
+                ? new URL(uploadUrl).pathname + new URL(uploadUrl).search
+                : uploadUrl
+            console.log('[vaultwarden] v2 direct POST to:', uploadPath)
+            await this.request('POST', uploadPath, multipart.body, accessToken, {
+                'Content-Type': `multipart/form-data; boundary=${multipart.boundary}`,
             })
         }
 
-        // Return the attachment metadata from the cipher response
         const cipherResp = initResp.CipherResponse ?? initResp.cipherResponse
-        const att = cipherResp?.Attachments?.find((a: RawAttachment) => a.Id === attachmentId)
+        return cipherResp?.Attachments?.find((a: RawAttachment) => a.Id === attachmentId)
             ?? { Id: attachmentId, FileName: encryptedFileName, Size: String(encryptedData.length), Url: uploadUrl, Key: encryptedKey }
-        return att
+    }
+
+    private async uploadAttachmentV1 (
+        cipherId: string,
+        encryptedFileName: string,
+        encryptedKey: string,
+        encryptedData: Buffer,
+        accessToken: string,
+    ): Promise<RawAttachment> {
+        const boundary = `----TabbyBoundary${crypto.randomBytes(8).toString('hex')}`
+        const CRLF = '\r\n'
+        const keyPart = [
+            `--${boundary}`,
+            'Content-Disposition: form-data; name="key"',
+            '',
+            encryptedKey,
+        ].join(CRLF)
+        const filePart = [
+            `--${boundary}`,
+            `Content-Disposition: form-data; name="data"; filename="attachment"`,
+            'Content-Type: application/octet-stream',
+            '',
+        ].join(CRLF)
+        const body = Buffer.concat([
+            Buffer.from(keyPart + CRLF + filePart + CRLF),
+            encryptedData,
+            Buffer.from(CRLF + `--${boundary}--` + CRLF),
+        ])
+        console.log('[vaultwarden] v1 POST /api/ciphers/{id}/attachment, body size:', body.length)
+        const resp = await this.request('POST', `/api/ciphers/${cipherId}/attachment`, body, accessToken, {
+            'Content-Type': `multipart/form-data; boundary=${boundary}`,
+        })
+        console.log('[vaultwarden] v1 response:', JSON.stringify(resp).slice(0, 300))
+        const att = resp?.Id ? resp : resp?.Attachments?.[0]
+        return att ?? { Id: '', FileName: encryptedFileName, Size: String(encryptedData.length), Url: '', Key: encryptedKey }
+    }
+
+    private buildMultipart (data: Buffer): { boundary: string, body: Buffer } {
+        const boundary = `----TabbyBoundary${crypto.randomBytes(8).toString('hex')}`
+        const CRLF = '\r\n'
+        const filePart = [
+            `--${boundary}`,
+            'Content-Disposition: form-data; name="data"; filename="attachment"',
+            'Content-Type: application/octet-stream',
+            '',
+        ].join(CRLF)
+        const body = Buffer.concat([
+            Buffer.from(filePart + CRLF),
+            data,
+            Buffer.from(CRLF + `--${boundary}--` + CRLF),
+        ])
+        return { boundary, body }
     }
 
     /**
