@@ -191,11 +191,11 @@ export class SSHSession {
 
                     this.addPublicKeyAuthMethod(pk, contents)
                 }
-            } else {
-                for (const importer of this.privateKeyImporters) {
-                    for (const [name, contents] of await importer.getKeys()) {
-                        this.addPublicKeyAuthMethod(name, contents)
-                    }
+            }
+            // Always include keys from importers (e.g. Vaultwarden) regardless of local key config
+            for (const importer of this.privateKeyImporters) {
+                for (const [name, contents] of await importer.getKeys()) {
+                    this.addPublicKeyAuthMethod(name, contents)
                 }
             }
         }
