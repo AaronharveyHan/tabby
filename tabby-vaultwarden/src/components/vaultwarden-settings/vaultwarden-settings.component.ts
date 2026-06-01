@@ -94,7 +94,7 @@ export class VaultwardenSettingsComponent implements OnInit {
 
     async deleteKey (name: string): Promise<void> {
         try {
-            await this.vw.deleteFile(name)
+            await this.vw.deleteFile(`${KEY_PREFIX}${name}`)
             await this.loadKeyNames()
         } catch (e: any) {
             this.syncError = e.message
