@@ -162,32 +162,48 @@ export class BitwardenApiClient {
         encryptedData: Buffer,
         accessToken: string,
     ): Promise<RawAttachment> {
-        const boundary = `----TabbyBoundary${crypto.randomBytes(8).toString('hex')}`
-        const CRLF = '\r\n'
+        // Step 1: request upload slot (v2 API)
+        const initResp = await this.post(`/api/ciphers/${cipherId}/attachment/v2`, {
+            fileName: encryptedFileName,
+            key: encryptedKey,
+            fileSize: encryptedData.length,
+            adminRequest: false,
+        }, accessToken)
 
-        const metaPart = [
-            `--${boundary}`,
-            'Content-Disposition: form-data; name="key"',
-            '',
-            encryptedKey,
-        ].join(CRLF)
+        const { attachmentId, url, fileUploadType } = initResp
 
-        const filePart = [
-            `--${boundary}`,
-            `Content-Disposition: form-data; name="data"; filename="${encryptedFileName}"`,
-            'Content-Type: application/octet-stream',
-            '',
-        ].join(CRLF)
+        // Step 2: upload the encrypted bytes
+        // fileUploadType 0 = Azure, 1 = Direct (Vaultwarden local storage)
+        if (fileUploadType === 0) {
+            // Azure Blob Storage: PUT with raw bytes + Azure-specific headers
+            await this.putRaw(url, encryptedData, {
+                'x-ms-blob-type': 'BlockBlob',
+                'Content-Type': 'application/octet-stream',
+            })
+        } else {
+            // Direct (Vaultwarden self-hosted): multipart POST to Vaultwarden
+            const boundary = `----TabbyBoundary${crypto.randomBytes(8).toString('hex')}`
+            const CRLF = '\r\n'
+            const filePart = [
+                `--${boundary}`,
+                `Content-Disposition: form-data; name="data"; filename="attachment"`,
+                'Content-Type: application/octet-stream',
+                '',
+            ].join(CRLF)
+            const body = Buffer.concat([
+                Buffer.from(filePart + CRLF),
+                encryptedData,
+                Buffer.from(CRLF + `--${boundary}--` + CRLF),
+            ])
+            await this.request('POST', url.startsWith('http') ? new URL(url).pathname + new URL(url).search : url, body, accessToken, {
+                'Content-Type': `multipart/form-data; boundary=${boundary}`,
+            })
+        }
 
-        const body = Buffer.concat([
-            Buffer.from(metaPart + CRLF + filePart + CRLF),
-            encryptedData,
-            Buffer.from(CRLF + `--${boundary}--` + CRLF),
-        ])
-
-        return this.request('POST', `/api/ciphers/${cipherId}/attachment`, body, accessToken, {
-            'Content-Type': `multipart/form-data; boundary=${boundary}`,
-        })
+        // Return the attachment metadata from the cipher response
+        const att = initResp.cipherResponse?.Attachments?.find((a: RawAttachment) => a.Id === attachmentId)
+            ?? { Id: attachmentId, FileName: encryptedFileName, Size: String(encryptedData.length), Url: url, Key: encryptedKey }
+        return att
     }
 
     /**
@@ -290,6 +306,35 @@ export class BitwardenApiClient {
             if (body) {
                 req.write(body)
             }
+            req.end()
+        })
+    }
+
+    private putRaw (rawUrl: string, data: Buffer, headers: Record<string, string> = {}): Promise<void> {
+        return new Promise((resolve, reject) => {
+            const url = new URL(rawUrl)
+            const isHttps = url.protocol === 'https:'
+            const transport = isHttps ? https : http
+            const req = transport.request({
+                hostname: url.hostname,
+                port: url.port ? parseInt(url.port) : (isHttps ? 443 : 80),
+                path: url.pathname + url.search,
+                method: 'PUT',
+                headers: { 'Content-Length': String(data.length), ...headers },
+            }, res => {
+                const chunks: Buffer[] = []
+                res.on('data', (c: Buffer) => chunks.push(c))
+                res.on('end', () => {
+                    if (res.statusCode && res.statusCode >= 400) {
+                        reject(new Error(`Upload failed with status ${res.statusCode}`))
+                    } else {
+                        resolve()
+                    }
+                })
+                res.on('error', reject)
+            })
+            req.on('error', reject)
+            req.write(data)
             req.end()
         })
     }
