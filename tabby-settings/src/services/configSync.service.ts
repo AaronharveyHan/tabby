@@ -1,5 +1,4 @@
 import * as yaml from 'js-yaml'
-import axios from 'axios'
 import { Injectable } from '@angular/core'
 import { ConfigService, HostAppService, Logger, LogService, Platform, PlatformService } from 'tabby-core'
 
@@ -177,16 +176,21 @@ export class ConfigSyncService {
         url = host + url
         this.logger.debug(`${method} ${url}`, params)
         try {
-            const response = await axios.request({
-                url,
+            const fetchParams = params as any
+            const response = await fetch(url, {
                 method,
                 headers: {
                     Authorization: `Bearer ${this.config.store.configSync.token}`,
+                    'Content-Type': 'application/json',
                 },
-                ...params,
+                body: fetchParams.data ? JSON.stringify(fetchParams.data) : undefined,
             })
-            this.logger.debug(response)
-            return response.data
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+            }
+            const result = await response.json()
+            this.logger.debug(result)
+            return result
         } catch (error) {
             this.logger.error(error)
             throw error
