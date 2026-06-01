@@ -1,6 +1,4 @@
 import * as crypto from 'crypto'
-import * as https from 'https'
-import * as http from 'http'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
@@ -202,14 +200,24 @@ export class BitwardenApiClient {
                 'Content-Type': 'application/octet-stream',
             })
         } else {
-            const multipart = this.buildMultipart(encryptedData)
-            const uploadPath = uploadUrl.startsWith('http')
-                ? new URL(uploadUrl).pathname + new URL(uploadUrl).search
-                : uploadUrl
-            console.log('[vaultwarden] v2 direct POST to:', uploadPath)
-            await this.request('POST', uploadPath, multipart.body, accessToken, {
-                'Content-Type': `multipart/form-data; boundary=${multipart.boundary}`,
+            // Direct upload: use native FormData so the browser sets the correct boundary
+            const fullUploadUrl = uploadUrl.startsWith('http')
+                ? uploadUrl
+                : new URL(uploadUrl, this.baseUrl.endsWith('/') ? this.baseUrl : this.baseUrl + '/').toString()
+            console.log('[vaultwarden] v2 direct POST to:', fullUploadUrl)
+            const form = new FormData()
+            form.append('data', new Blob([encryptedData], { type: 'application/octet-stream' }), 'attachment')
+            const resp = await fetch(fullUploadUrl, {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${accessToken}` },
+                body: form,
             })
+            if (resp.status >= 400) {
+                const text = await resp.text()
+                let msg = text
+                try { msg = JSON.parse(text)?.error?.description ?? text } catch { /* ok */ }
+                throw new Error(`Vaultwarden API error ${resp.status}: ${msg}`)
+            }
         }
 
         const cipherResp = initResp.CipherResponse ?? initResp.cipherResponse
@@ -224,49 +232,26 @@ export class BitwardenApiClient {
         encryptedData: Buffer,
         accessToken: string,
     ): Promise<RawAttachment> {
-        const boundary = `----TabbyBoundary${crypto.randomBytes(8).toString('hex')}`
-        const CRLF = '\r\n'
-        const keyPart = [
-            `--${boundary}`,
-            'Content-Disposition: form-data; name="key"',
-            '',
-            encryptedKey,
-        ].join(CRLF)
-        const filePart = [
-            `--${boundary}`,
-            `Content-Disposition: form-data; name="data"; filename="attachment"`,
-            'Content-Type: application/octet-stream',
-            '',
-        ].join(CRLF)
-        const body = Buffer.concat([
-            Buffer.from(keyPart + CRLF + filePart + CRLF),
-            encryptedData,
-            Buffer.from(CRLF + `--${boundary}--` + CRLF),
-        ])
-        console.log('[vaultwarden] v1 POST /api/ciphers/{id}/attachment, body size:', body.length)
-        const resp = await this.request('POST', `/api/ciphers/${cipherId}/attachment`, body, accessToken, {
-            'Content-Type': `multipart/form-data; boundary=${boundary}`,
+        const url = new URL(`/api/ciphers/${cipherId}/attachment`, this.baseUrl.endsWith('/') ? this.baseUrl : this.baseUrl + '/')
+        console.log('[vaultwarden] v1 POST', url.toString(), 'data size:', encryptedData.length)
+        const form = new FormData()
+        form.append('key', encryptedKey)
+        form.append('data', new Blob([encryptedData], { type: 'application/octet-stream' }), 'attachment')
+        const resp = await fetch(url.toString(), {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${accessToken}` },
+            body: form,
         })
-        console.log('[vaultwarden] v1 response:', JSON.stringify(resp).slice(0, 300))
-        const att = resp?.Id ? resp : resp?.Attachments?.[0]
-        return att ?? { Id: '', FileName: encryptedFileName, Size: String(encryptedData.length), Url: '', Key: encryptedKey }
-    }
-
-    private buildMultipart (data: Buffer): { boundary: string, body: Buffer } {
-        const boundary = `----TabbyBoundary${crypto.randomBytes(8).toString('hex')}`
-        const CRLF = '\r\n'
-        const filePart = [
-            `--${boundary}`,
-            'Content-Disposition: form-data; name="data"; filename="attachment"',
-            'Content-Type: application/octet-stream',
-            '',
-        ].join(CRLF)
-        const body = Buffer.concat([
-            Buffer.from(filePart + CRLF),
-            data,
-            Buffer.from(CRLF + `--${boundary}--` + CRLF),
-        ])
-        return { boundary, body }
+        const text = await resp.text()
+        console.log('[vaultwarden] v1 response status:', resp.status, text.slice(0, 300))
+        if (resp.status >= 400) {
+            let msg = text
+            try { msg = JSON.parse(text)?.error?.description ?? JSON.parse(text)?.ErrorModel?.Message ?? text } catch { /* ok */ }
+            throw new Error(`Vaultwarden API error ${resp.status}: ${msg}`)
+        }
+        const json = JSON.parse(text)
+        return json?.Id ? json : json?.Attachments?.[0]
+            ?? { Id: '', FileName: encryptedFileName, Size: String(encryptedData.length), Url: '', Key: encryptedKey }
     }
 
     /**
@@ -308,121 +293,68 @@ export class BitwardenApiClient {
         })
     }
 
-    private request (
+    private async request (
         method: string,
         urlPath: string,
         body: Buffer | null,
         accessToken: string | null,
         extraHeaders: Record<string, string> = {},
     ): Promise<any> {
-        return new Promise((resolve, reject) => {
-            const url = new URL(urlPath, this.baseUrl.endsWith('/') ? this.baseUrl : this.baseUrl + '/')
-            const isHttps = url.protocol === 'https:'
-            const transport = isHttps ? https : http
+        const url = new URL(urlPath, this.baseUrl.endsWith('/') ? this.baseUrl : this.baseUrl + '/')
+        const headers: Record<string, string> = { Accept: 'application/json', ...extraHeaders }
+        if (accessToken) {
+            headers.Authorization = `Bearer ${accessToken}`
+        }
 
-            const headers: Record<string, string> = {
-                Accept: 'application/json',
-                ...extraHeaders,
-            }
-            if (accessToken) {
-                headers.Authorization = `Bearer ${accessToken}`
-            }
-            if (body) {
-                headers['Content-Length'] = String(body.length)
-            }
-
-            const req = transport.request({
-                hostname: url.hostname,
-                port: url.port ? parseInt(url.port) : (isHttps ? 443 : 80),
-                path: url.pathname + url.search,
-                method,
-                headers,
-            }, res => {
-                const chunks: Buffer[] = []
-                res.on('data', (c: Buffer) => chunks.push(c))
-                res.on('end', () => {
-                    const raw = Buffer.concat(chunks)
-                    if (res.statusCode === 204 || raw.length === 0) {
-                        resolve(null)
-                        return
-                    }
-                    try {
-                        const json = JSON.parse(raw.toString('utf8'))
-                        if (res.statusCode && res.statusCode >= 400) {
-                            const msg = json.ErrorModel?.Message ?? json.error_description ?? json.error?.description ?? json.message ?? JSON.stringify(json)
-                            reject(new Error(`Vaultwarden API error ${res.statusCode}: ${msg}`))
-                        } else {
-                            resolve(json)
-                        }
-                    } catch {
-                        if (res.statusCode && res.statusCode >= 400) {
-                            reject(new Error(`Vaultwarden API error ${res.statusCode}`))
-                        } else {
-                            resolve(raw)
-                        }
-                    }
-                })
-                res.on('error', reject)
-            })
-
-            req.on('error', reject)
-            if (body) {
-                req.write(body)
-            }
-            req.end()
+        const resp = await fetch(url.toString(), {
+            method,
+            headers,
+            body: body ?? undefined,
         })
+
+        if (resp.status === 204) {
+            return null
+        }
+
+        const text = await resp.text()
+        if (!text) {
+            return null
+        }
+
+        let json: any
+        try {
+            json = JSON.parse(text)
+        } catch {
+            if (resp.status >= 400) {
+                throw new Error(`Vaultwarden API error ${resp.status}: ${text.slice(0, 200)}`)
+            }
+            return Buffer.from(text)
+        }
+
+        if (resp.status >= 400) {
+            const msg = json.ErrorModel?.Message ?? json.error_description ?? json.error?.description ?? json.message ?? JSON.stringify(json)
+            throw new Error(`Vaultwarden API error ${resp.status}: ${msg}`)
+        }
+        return json
     }
 
-    private putRaw (rawUrl: string, data: Buffer, headers: Record<string, string> = {}): Promise<void> {
-        return new Promise((resolve, reject) => {
-            const url = new URL(rawUrl)
-            const isHttps = url.protocol === 'https:'
-            const transport = isHttps ? https : http
-            const req = transport.request({
-                hostname: url.hostname,
-                port: url.port ? parseInt(url.port) : (isHttps ? 443 : 80),
-                path: url.pathname + url.search,
-                method: 'PUT',
-                headers: { 'Content-Length': String(data.length), ...headers },
-            }, res => {
-                const chunks: Buffer[] = []
-                res.on('data', (c: Buffer) => chunks.push(c))
-                res.on('end', () => {
-                    if (res.statusCode && res.statusCode >= 400) {
-                        reject(new Error(`Upload failed with status ${res.statusCode}`))
-                    } else {
-                        resolve()
-                    }
-                })
-                res.on('error', reject)
-            })
-            req.on('error', reject)
-            req.write(data)
-            req.end()
+    private async putRaw (rawUrl: string, data: Buffer, extraHeaders: Record<string, string> = {}): Promise<void> {
+        const resp = await fetch(rawUrl, {
+            method: 'PUT',
+            headers: extraHeaders,
+            body: data,
         })
+        if (resp.status >= 400) {
+            throw new Error(`Upload failed with status ${resp.status}`)
+        }
     }
 
-    private downloadRaw (rawUrl: string, accessToken: string): Promise<Buffer> {
-        return new Promise((resolve, reject) => {
-            const url = new URL(rawUrl)
-            const isHttps = url.protocol === 'https:'
-            const transport = isHttps ? https : http
-
-            const req = transport.request({
-                hostname: url.hostname,
-                port: url.port ? parseInt(url.port) : (isHttps ? 443 : 80),
-                path: url.pathname + url.search,
-                method: 'GET',
-                headers: { Authorization: `Bearer ${accessToken}` },
-            }, res => {
-                const chunks: Buffer[] = []
-                res.on('data', (c: Buffer) => chunks.push(c))
-                res.on('end', () => resolve(Buffer.concat(chunks)))
-                res.on('error', reject)
-            })
-            req.on('error', reject)
-            req.end()
+    private async downloadRaw (rawUrl: string, accessToken: string): Promise<Buffer> {
+        const resp = await fetch(rawUrl, {
+            headers: { Authorization: `Bearer ${accessToken}` },
         })
+        const buf = await resp.arrayBuffer()
+        return Buffer.from(buf)
     }
 
     private getOrCreateDeviceId (): string {
