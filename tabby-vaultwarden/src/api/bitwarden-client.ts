@@ -196,17 +196,35 @@ export class BitwardenApiClient {
         const fileUploadType: number = initResp.FileUploadType ?? initResp.fileUploadType ?? 1
         console.log('[vaultwarden] attachmentId:', attachmentId, 'uploadUrl:', uploadUrl, 'fileUploadType:', fileUploadType)
 
-        if (fileUploadType === 0) {
-            await this.putRaw(uploadUrl, encryptedData, {
+        // Always resolve the upload URL against baseUrl (Vaultwarden returns relative paths)
+        const fullUploadUrl = uploadUrl.startsWith('http')
+            ? uploadUrl
+            : new URL(uploadUrl, this.baseUrl.endsWith('/') ? this.baseUrl : this.baseUrl + '/').toString()
+        console.log('[vaultwarden] v2 upload POST to:', fullUploadUrl, 'fileUploadType:', fileUploadType)
+
+        if (fileUploadType === 0 && !uploadUrl.startsWith('http')) {
+            // Self-hosted Vaultwarden direct upload — POST with FormData + auth token
+            const form = new FormData()
+            form.append('data', new Blob([encryptedData], { type: 'application/octet-stream' }), 'attachment')
+            const resp = await fetch(fullUploadUrl, {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${accessToken}` },
+                body: form,
+            })
+            if (resp.status >= 400) {
+                const text = await resp.text()
+                let msg = text
+                try { msg = JSON.parse(text)?.error?.description ?? text } catch { /* ok */ }
+                throw new Error(`Vaultwarden API error ${resp.status}: ${msg}`)
+            }
+        } else if (fileUploadType === 0) {
+            // Azure blob storage upload
+            await this.putRaw(fullUploadUrl, encryptedData, {
                 'x-ms-blob-type': 'BlockBlob',
                 'Content-Type': 'application/octet-stream',
             })
         } else {
-            // Direct upload: use native FormData so the browser sets the correct boundary
-            const fullUploadUrl = uploadUrl.startsWith('http')
-                ? uploadUrl
-                : new URL(uploadUrl, this.baseUrl.endsWith('/') ? this.baseUrl : this.baseUrl + '/').toString()
-            console.log('[vaultwarden] v2 direct POST to:', fullUploadUrl)
+            // Direct upload via non-Azure URL
             const form = new FormData()
             form.append('data', new Blob([encryptedData], { type: 'application/octet-stream' }), 'attachment')
             const resp = await fetch(fullUploadUrl, {
