@@ -30,4 +30,8 @@ import { VaultwardenPrivateKeyLocator } from './services/vw-private-key.service'
         VaultwardenSettingsComponent,
     ],
 })
-export default class VaultwardenModule {}
+export default class VaultwardenModule {
+    constructor () {
+        console.log('[vaultwarden] module loaded — build: fetch-api-v3')
+    }
+}
