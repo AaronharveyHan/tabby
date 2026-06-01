@@ -170,18 +170,20 @@ export class BitwardenApiClient {
             adminRequest: false,
         }, accessToken)
 
-        const { attachmentId, url, fileUploadType } = initResp
+        // Vaultwarden returns PascalCase fields
+        const attachmentId: string = initResp.AttachmentId ?? initResp.attachmentId
+        const uploadUrl: string = initResp.Url ?? initResp.url
+        const fileUploadType: number = initResp.FileUploadType ?? initResp.fileUploadType ?? 1
 
         // Step 2: upload the encrypted bytes
-        // fileUploadType 0 = Azure, 1 = Direct (Vaultwarden local storage)
+        // fileUploadType 0 = Azure Blob Storage, 1 = Direct (Vaultwarden local storage)
         if (fileUploadType === 0) {
-            // Azure Blob Storage: PUT with raw bytes + Azure-specific headers
-            await this.putRaw(url, encryptedData, {
+            await this.putRaw(uploadUrl, encryptedData, {
                 'x-ms-blob-type': 'BlockBlob',
                 'Content-Type': 'application/octet-stream',
             })
         } else {
-            // Direct (Vaultwarden self-hosted): multipart POST to Vaultwarden
+            // Direct: multipart POST back to Vaultwarden
             const boundary = `----TabbyBoundary${crypto.randomBytes(8).toString('hex')}`
             const CRLF = '\r\n'
             const filePart = [
@@ -195,14 +197,17 @@ export class BitwardenApiClient {
                 encryptedData,
                 Buffer.from(CRLF + `--${boundary}--` + CRLF),
             ])
-            await this.request('POST', url.startsWith('http') ? new URL(url).pathname + new URL(url).search : url, body, accessToken, {
+            // uploadUrl may be absolute or relative
+            const uploadPath = uploadUrl.startsWith('http') ? new URL(uploadUrl).pathname + new URL(uploadUrl).search : uploadUrl
+            await this.request('POST', uploadPath, body, accessToken, {
                 'Content-Type': `multipart/form-data; boundary=${boundary}`,
             })
         }
 
         // Return the attachment metadata from the cipher response
-        const att = initResp.cipherResponse?.Attachments?.find((a: RawAttachment) => a.Id === attachmentId)
-            ?? { Id: attachmentId, FileName: encryptedFileName, Size: String(encryptedData.length), Url: url, Key: encryptedKey }
+        const cipherResp = initResp.CipherResponse ?? initResp.cipherResponse
+        const att = cipherResp?.Attachments?.find((a: RawAttachment) => a.Id === attachmentId)
+            ?? { Id: attachmentId, FileName: encryptedFileName, Size: String(encryptedData.length), Url: uploadUrl, Key: encryptedKey }
         return att
     }
 

@@ -100,6 +100,7 @@ export function encryptString (plaintext: string, key: SymmetricKey): string {
 
 /**
  * Encrypts a Buffer (binary data) using AES-256-CBC + HMAC-SHA256.
+ * Returns a Bitwarden cipher string (used for key fields, not file data).
  */
 export function encryptBuffer (data: Buffer, key: SymmetricKey): string {
     const iv = crypto.randomBytes(16)
@@ -107,6 +108,38 @@ export function encryptBuffer (data: Buffer, key: SymmetricKey): string {
     const encrypted = Buffer.concat([cipher.update(data), cipher.final()])
     const mac = computeMac(iv, encrypted, key.macKey)
     return `2.${iv.toString('base64')}|${encrypted.toString('base64')}|${mac.toString('base64')}`
+}
+
+/**
+ * Encrypts a Buffer as raw binary for attachment file data.
+ * Format: [0x02][16 bytes IV][32 bytes MAC][ciphertext]
+ */
+export function encryptBufferRaw (data: Buffer, key: SymmetricKey): Buffer {
+    const iv = crypto.randomBytes(16)
+    const cipher = crypto.createCipheriv('aes-256-cbc', key.encKey, iv)
+    const encrypted = Buffer.concat([cipher.update(data), cipher.final()])
+    const mac = computeMac(iv, encrypted, key.macKey)
+    return Buffer.concat([Buffer.from([0x02]), iv, mac, encrypted])
+}
+
+/**
+ * Decrypts raw binary attachment data (EncArrayBuffer format).
+ * Format: [0x02][16 bytes IV][32 bytes MAC][ciphertext]
+ */
+export function decryptBufferRaw (data: Buffer, key: SymmetricKey): Buffer {
+    const type = data[0]
+    if (type !== 2) {
+        throw new Error(`Unsupported attachment encryption type: ${type}`)
+    }
+    const iv = data.slice(1, 17)
+    const mac = data.slice(17, 49)
+    const ct = data.slice(49)
+    const expectedMac = computeMac(iv, ct, key.macKey)
+    if (!crypto.timingSafeEqual(mac, expectedMac)) {
+        throw new Error('Attachment MAC validation failed')
+    }
+    const decipher = crypto.createDecipheriv('aes-256-cbc', key.encKey, iv)
+    return Buffer.concat([decipher.update(ct), decipher.final()])
 }
 
 /**

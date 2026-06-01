@@ -17,8 +17,8 @@ import {
     decryptAccountKey,
     encryptString,
     decryptString,
-    encryptBuffer,
-    decryptCipherString,
+    encryptBufferRaw,
+    decryptBufferRaw,
     generateAttachmentKey,
     decryptAttachmentKey,
 } from '../api/bitwarden-crypto'
@@ -289,7 +289,7 @@ export class VaultwardenService {
         // Generate per-attachment key
         const { key: attachKey, encryptedKey } = generateAttachmentKey(key)
         const encryptedFileName = encryptString(name, key)
-        const encryptedData = Buffer.from(encryptBuffer(data, attachKey))
+        const encryptedData = encryptBufferRaw(data, attachKey)
 
         await this.client!.uploadAttachment(cipherId, encryptedFileName, encryptedKey, encryptedData, this.accessToken!)
         this.cachedCiphers = null
@@ -306,7 +306,7 @@ export class VaultwardenService {
         const encryptedData = await this.client!.downloadAttachment(att.url, this.accessToken!)
 
         const attachKey = decryptAttachmentKey(att.encryptedKey, this.symmetricKey!)
-        return decryptCipherString(encryptedData.toString('utf8'), attachKey)
+        return decryptBufferRaw(encryptedData, attachKey)
     }
 
     async deleteFile (name: string): Promise<void> {
