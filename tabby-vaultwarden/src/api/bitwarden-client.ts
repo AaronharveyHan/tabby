@@ -4,7 +4,7 @@ import * as http from 'http'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
-import { KdfParams, KdfType, SymmetricKey, encryptString, decryptString, encryptBuffer, decryptCipherString } from './bitwarden-crypto'
+import { KdfType } from './bitwarden-crypto'
 
 export interface PreloginResponse {
     kdf: KdfType

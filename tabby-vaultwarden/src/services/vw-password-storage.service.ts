@@ -1,6 +1,6 @@
 import { Injectable } from '@angular/core'
 import { VaultwardenService } from './vaultwarden.service'
-import { SSH_VAULT_BACKEND, SSHVaultBackend } from 'tabby-ssh'
+import { SSHVaultBackend } from 'tabby-ssh'
 
 /**
  * Implements the SSH_VAULT_BACKEND injection token using Vaultwarden.

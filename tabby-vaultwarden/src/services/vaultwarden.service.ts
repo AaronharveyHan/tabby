@@ -1,6 +1,6 @@
 import * as keytar from 'keytar'
 import { Injectable } from '@angular/core'
-import { ConfigService, NotificationsService } from 'tabby-core'
+import { ConfigService } from 'tabby-core'
 import {
     BitwardenApiClient,
     CipherType,
@@ -68,7 +68,6 @@ export class VaultwardenService {
 
     constructor (
         private config: ConfigService,
-        private notifications: NotificationsService,
     ) {}
 
     get vwConfig (): VaultwardenConfig {
