@@ -283,7 +283,7 @@ export class VaultwardenService {
             cipherId = existing.id
         } else {
             const created = await this.client!.createCipher(notePaylod, this.accessToken!)
-            cipherId = created.Id ?? created.id
+            cipherId = created.Id
         }
         console.log('[vaultwarden] uploadFile cipherId:', cipherId)
 
