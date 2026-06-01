@@ -167,7 +167,15 @@ export class VaultwardenService {
             await this.getOrSyncCiphers()
         } catch (e: any) {
             if (e.message?.includes('401') && this.refreshToken) {
-                await this.refreshAccessToken()
+                try {
+                    await this.refreshAccessToken()
+                    this.cachedCiphers = null
+                    await this.getOrSyncCiphers()
+                } catch {
+                    // Both tokens expired — clear session so user is prompted to log in again
+                    await this.logout()
+                    throw new Error('Vaultwarden session expired. Please log in again from Settings → Vaultwarden.')
+                }
             } else {
                 throw e
             }

@@ -270,7 +270,7 @@ export class BitwardenApiClient {
                     try {
                         const json = JSON.parse(raw.toString('utf8'))
                         if (res.statusCode && res.statusCode >= 400) {
-                            const msg = json.ErrorModel?.Message ?? json.error_description ?? json.message ?? JSON.stringify(json)
+                            const msg = json.ErrorModel?.Message ?? json.error_description ?? json.error?.description ?? json.message ?? JSON.stringify(json)
                             reject(new Error(`Vaultwarden API error ${res.statusCode}: ${msg}`))
                         } else {
                             resolve(json)
