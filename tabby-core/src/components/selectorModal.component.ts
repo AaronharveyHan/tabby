@@ -76,7 +76,7 @@ export class SelectorModalComponent<T> {
         const f = this.filter.trim().toLowerCase()
         if (!f) {
             this.filteredOptions = this.options.slice().sort(
-                firstBy(x => x.weight ?? 0)
+                firstBy<SelectorOption<T>>(x => x.weight ?? 0)
                     .thenBy(x => x.group ?? '')
                     .thenBy(x => x.name),
             )
