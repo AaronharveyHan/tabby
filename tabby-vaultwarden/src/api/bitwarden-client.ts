@@ -78,9 +78,11 @@ export interface RawAttachment {
 }
 
 export interface SyncResponse {
-    Ciphers: RawCipher[]
-    Folders: Array<{ Id: string, Name: string }>
-    Profile: ProfileResponse
+    Ciphers?: RawCipher[]
+    ciphers?: RawCipher[]
+    Folders?: Array<{ Id: string, Name: string }>
+    folders?: Array<{ Id?: string, id?: string, Name?: string, name?: string }>
+    Profile?: ProfileResponse
 }
 
 /**

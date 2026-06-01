@@ -283,7 +283,8 @@ export class VaultwardenService {
             cipherId = existing.id
         } else {
             const created = await this.client!.createCipher(notePaylod, this.accessToken!)
-            cipherId = created.Id
+            console.log('[vaultwarden] createCipher raw response keys:', Object.keys(created ?? {}))
+            cipherId = created.Id ?? (created as any).id
         }
         console.log('[vaultwarden] uploadFile cipherId:', cipherId)
 
@@ -343,17 +344,21 @@ export class VaultwardenService {
 
         // Find or note Tabby folder id
         const folderName = this.vwConfig.folderName || 'Tabby'
-        for (const folder of sync.Folders ?? []) {
+        const folders = sync.Folders ?? sync.folders ?? []
+        for (const folder of folders) {
             try {
-                const decName = decryptString(folder.Name, this.symmetricKey!)
+                const folderName_ = (folder as any).Name ?? (folder as any).name
+                const folderId_ = (folder as any).Id ?? (folder as any).id
+                const decName = decryptString(folderName_, this.symmetricKey!)
                 if (decName === folderName) {
-                    this.tabbyFolderId = folder.Id
+                    this.tabbyFolderId = folderId_
                     break
                 }
             } catch { /* skip undecryptable folders */ }
         }
 
-        this.cachedCiphers = (sync.Ciphers ?? []).map(c => {
+        const ciphers = sync.Ciphers ?? sync.ciphers ?? []
+        this.cachedCiphers = ciphers.map(c => {
             try {
                 return this.decryptCipher(c)
             } catch {
@@ -366,11 +371,12 @@ export class VaultwardenService {
 
     private decryptCipher (raw: RawCipher): DecryptedCipher {
         const key = this.symmetricKey!
+        const r = raw as any
         const result: DecryptedCipher = {
-            id: raw.Id,
-            type: raw.Type,
-            name: decryptString(raw.Name, key),
-            folderId: raw.FolderId ?? undefined,
+            id: raw.Id ?? r.id,
+            type: raw.Type ?? r.type,
+            name: decryptString(raw.Name ?? r.name, key),
+            folderId: raw.FolderId ?? r.folderId ?? undefined,
         }
 
         if (raw.Notes) {
@@ -406,8 +412,9 @@ export class VaultwardenService {
         const folderName = this.vwConfig.folderName || 'Tabby'
         const encName = encryptString(folderName, this.symmetricKey!)
         const folder = await this.client!.createFolder(encName, this.accessToken!)
-        this.tabbyFolderId = folder.Id
-        return folder.Id
+        const fid = folder.Id ?? (folder as any).id ?? null
+        this.tabbyFolderId = fid
+        return fid
     }
 
     private async refreshAccessToken (): Promise<void> {
