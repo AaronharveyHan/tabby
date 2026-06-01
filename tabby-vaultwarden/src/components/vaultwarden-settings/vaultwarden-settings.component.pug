@@ -6,7 +6,7 @@ h3.mt-0 Vaultwarden Cloud Sync
     type="url",
     placeholder="https://vault.example.com",
     [(ngModel)]="config.store.vaultwarden.url",
-    (ngModelChange)="config.requestSave()"
+    (ngModelChange)="config.save()"
   )
   small.form-text.text-muted Your self-hosted Vaultwarden instance URL.
 
@@ -16,7 +16,7 @@ h3.mt-0 Vaultwarden Cloud Sync
     type="email",
     placeholder="user@example.com",
     [(ngModel)]="config.store.vaultwarden.email",
-    (ngModelChange)="config.requestSave()"
+    (ngModelChange)="config.save()"
   )
 
 .form-group
@@ -25,7 +25,7 @@ h3.mt-0 Vaultwarden Cloud Sync
     type="text",
     placeholder="Tabby",
     [(ngModel)]="config.store.vaultwarden.folderName",
-    (ngModelChange)="config.requestSave()"
+    (ngModelChange)="config.save()"
   )
   small.form-text.text-muted Items will be placed in this Vaultwarden folder.
 
