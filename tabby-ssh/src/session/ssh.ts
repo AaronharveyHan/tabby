@@ -192,9 +192,15 @@ export class SSHSession {
                     this.addPublicKeyAuthMethod(pk, contents)
                 }
             }
-            // Always include keys from importers (e.g. Vaultwarden) regardless of local key config
+            // Always include keys from importers (e.g. Vaultwarden) regardless of local key config.
+            // Pass the configured private key basenames as hints so importers can fetch only the
+            // relevant key(s) rather than downloading everything they hold.
+            const keyHints = (this.profile.options.privateKeys ?? []).map(pk => {
+                const p = pk.replace('%h', this.profile.options.host).replace('%r', this.profile.options.user)
+                return p.split(/[/\\]/).pop() ?? p
+            })
             for (const importer of this.privateKeyImporters) {
-                for (const [name, contents] of await importer.getKeys()) {
+                for (const [name, contents] of await importer.getKeys(keyHints.length ? keyHints : undefined)) {
                     this.addPublicKeyAuthMethod(name, contents)
                 }
             }

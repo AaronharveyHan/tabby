@@ -6,5 +6,12 @@ export abstract class SSHProfileImporter {
 }
 
 export abstract class AutoPrivateKeyLocator {
-    abstract getKeys (): Promise<[string, Buffer][]>
+    /**
+     * Return SSH private key data.
+     * @param hintNames - optional list of key base-names the caller is interested in
+     *   (e.g. ["id_ed25519", "my-server-key"]).  Implementations may use this to
+     *   fetch only the relevant key(s) instead of everything they hold.
+     *   When omitted or empty the implementation should return all available keys.
+     */
+    abstract getKeys (hintNames?: string[]): Promise<[string, Buffer][]>
 }
