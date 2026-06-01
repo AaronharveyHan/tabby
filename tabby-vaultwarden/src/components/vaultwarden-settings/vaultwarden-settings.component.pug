@@ -1,0 +1,99 @@
+h3.mt-0 Vaultwarden Cloud Sync
+
+.form-group
+  label Server URL
+  input.form-control(
+    type="url",
+    placeholder="https://vault.example.com",
+    [(ngModel)]="config.store.vaultwarden.url",
+    (ngModelChange)="config.requestSave()"
+  )
+  small.form-text.text-muted Your self-hosted Vaultwarden instance URL.
+
+.form-group
+  label Account Email
+  input.form-control(
+    type="email",
+    placeholder="user@example.com",
+    [(ngModel)]="config.store.vaultwarden.email",
+    (ngModelChange)="config.requestSave()"
+  )
+
+.form-group
+  label Folder Name
+  input.form-control(
+    type="text",
+    placeholder="Tabby",
+    [(ngModel)]="config.store.vaultwarden.folderName",
+    (ngModelChange)="config.requestSave()"
+  )
+  small.form-text.text-muted Items will be placed in this Vaultwarden folder.
+
+hr
+
+ng-container(*ngIf="!vw.isSessionActive()")
+  h4 Login
+  .form-group
+    label Master Password
+    input.form-control(
+      type="password",
+      placeholder="Master password",
+      [(ngModel)]="masterPassword"
+    )
+  .d-flex.align-items-center
+    button.btn.btn-primary(
+      (click)="login()",
+      [disabled]="loginInProgress || !masterPassword"
+    )
+      span(*ngIf="!loginInProgress") Login
+      span(*ngIf="loginInProgress")
+        span.spinner-border.spinner-border-sm.me-1
+        | Connecting…
+    span.ms-3.text-danger(*ngIf="loginError") {{ loginError }}
+
+ng-container(*ngIf="vw.isSessionActive()")
+  .d-flex.align-items-center.gap-2.mb-3
+    span.badge.bg-success Connected
+    button.btn.btn-sm.btn-outline-secondary(
+      (click)="sync()",
+      [disabled]="syncInProgress"
+    )
+      span(*ngIf="!syncInProgress")
+        i.fas.fa-sync.me-1
+        | Sync now
+      span(*ngIf="syncInProgress")
+        span.spinner-border.spinner-border-sm.me-1
+        | Syncing…
+    span.ms-auto
+    button.btn.btn-sm.btn-outline-danger((click)="logout()") Logout
+  .text-success.small(*ngIf="syncSuccess") Sync complete.
+  .text-danger.small(*ngIf="syncError") {{ syncError }}
+
+hr
+
+h4 SSH Private Keys in Vault
+
+p.text-muted.small
+  | Keys stored here are automatically available when connecting via SSH.
+  | The key name is used only as a label.
+
+.d-flex.align-items-center.gap-2.mb-2
+  input.form-control(
+    type="text",
+    placeholder="Key label (e.g. my-server-key)",
+    [(ngModel)]="newKeyName",
+    style="max-width: 280px"
+  )
+  label.btn.btn-outline-primary.mb-0
+    | Upload private key file
+    input(type="file", style="display:none", (change)="onKeyFileSelected($event)")
+
+.text-danger.small.mb-2(*ngIf="uploadError") {{ uploadError }}
+.text-success.small.mb-2(*ngIf="uploadSuccess") Key uploaded successfully.
+
+ul.list-group(*ngIf="keyNames.length")
+  li.list-group-item.d-flex.align-items-center(*ngFor="let name of keyNames")
+    i.fas.fa-key.me-2
+    span {{ name }}
+    button.btn.btn-sm.btn-outline-danger.ms-auto((click)="deleteKey(name)")
+      i.fas.fa-trash

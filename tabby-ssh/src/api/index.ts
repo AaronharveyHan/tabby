@@ -1,4 +1,5 @@
 export * from './contextMenu'
 export * from './interfaces'
 export * from './importer'
+export * from './vault-backend'
 export { SSHMultiplexerService } from '../services/sshMultiplexer.service'
