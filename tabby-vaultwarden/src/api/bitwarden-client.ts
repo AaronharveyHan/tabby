@@ -373,6 +373,9 @@ export class BitwardenApiClient {
         const resp = await fetch(rawUrl, {
             headers: { Authorization: `Bearer ${accessToken}` },
         })
+        if (!resp.ok) {
+            throw new Error(`Attachment download failed: HTTP ${resp.status} from ${rawUrl}`)
+        }
         const buf = await resp.arrayBuffer()
         return Buffer.from(buf)
     }

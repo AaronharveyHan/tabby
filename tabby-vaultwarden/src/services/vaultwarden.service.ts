@@ -304,11 +304,16 @@ export class VaultwardenService {
             return null
         }
 
-        const att = cipher.attachments[0]
-        const encryptedData = await this.client!.downloadAttachment(att.url, this.accessToken!)
-
-        const attachKey = decryptAttachmentKey(att.encryptedKey, this.symmetricKey!)
-        return decryptBufferRaw(encryptedData, attachKey)
+        for (const att of cipher.attachments) {
+            try {
+                const encryptedData = await this.client!.downloadAttachment(att.url, this.accessToken!)
+                const attachKey = decryptAttachmentKey(att.encryptedKey, this.symmetricKey!)
+                return decryptBufferRaw(encryptedData, attachKey)
+            } catch (e: any) {
+                console.warn(`[vaultwarden] skipping attachment ${att.id}: ${e.message}`)
+            }
+        }
+        return null
     }
 
     async deleteFile (name: string): Promise<void> {
