@@ -53,11 +53,13 @@ process.on('uncaughtException' as any, err => {
     application.broadcast('uncaughtException', err)
 })
 
-electronDebug({
-    isEnabled: true,
-    showDevTools: argv.d,
-    devToolsMode: 'undocked',
-})
+if (argv.d) {
+    electronDebug({
+        isEnabled: true,
+        showDevTools: true,
+        devToolsMode: 'undocked',
+    })
+}
 
 app.on('activate', async () => {
     if (!application.hasWindows()) {
