@@ -392,13 +392,14 @@ export class VaultwardenService {
             }
         }
 
-        if (raw.Attachments?.length) {
-            result.attachments = raw.Attachments.map((a: RawAttachment) => ({
-                id: a.Id,
-                fileName: (() => { try { return decryptString(a.FileName, key) } catch { return '' } })(),
-                size: a.Size,
-                url: a.Url,
-                encryptedKey: a.Key ?? '',
+        const rawAttachments: RawAttachment[] | undefined = raw.Attachments ?? (r.attachments as RawAttachment[] | undefined)
+        if (rawAttachments?.length) {
+            result.attachments = rawAttachments.map((a: any) => ({
+                id: a.Id ?? a.id,
+                fileName: (() => { try { return decryptString(a.FileName ?? a.fileName, key) } catch { return '' } })(),
+                size: a.Size ?? a.size,
+                url: a.Url ?? a.url,
+                encryptedKey: a.Key ?? a.key ?? '',
             }))
         }
 
